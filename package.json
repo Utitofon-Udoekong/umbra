@@ -1,0 +1,28 @@
+{
+  "name": "umbra",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Umbra — anti-MEV institutional transaction router on Terminal 3 ADK",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "build:contract": "pnpm --filter @umbra/t3-contract build",
+    "setup:umbra": "pnpm --filter @umbra/orchestrator register",
+    "smoke": "pnpm --filter @umbra/orchestrator smoke",
+    "skill:verify-enclave": "pnpm --filter @umbra/orchestrator exec tsx src/scripts/verify-attestation.ts",
+    "skill:mock-intent": "curl -X POST http://localhost:3001/intent -H \"Content-Type: application/json\" -d \"{\\\"userAddress\\\":\\\"0x0000000000000000000000000000000000000001\\\",\\\"tokenIn\\\":\\\"USDC\\\",\\\"tokenOut\\\":\\\"WETH\\\",\\\"amount\\\":\\\"500000\\\"}\"",
+    "skill:deploy-pool": "pnpm --filter @umbra/evm-contracts deploy:base-sepolia",
+    "skill:fund-pool": "pnpm --filter @umbra/evm-contracts fund-pool",
+    "skill:pool-balance": "pnpm --filter @umbra/evm-contracts pool-balance",
+    "skill:user-credit": "pnpm --filter @umbra/evm-contracts user-credit",
+    "typecheck": "turbo run typecheck"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "pnpm@10.25.0"
+}

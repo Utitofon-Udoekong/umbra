@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.turbo/
+.next/
+_vendor/
+packages/t3-contract/contracts/**/target/
+packages/evm-contracts/cache/
+packages/evm-contracts/artifacts/
+packages/evm-contracts/deployments.json
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+*.tsbuildinfo
+
+# AI prompt / planning (local only)
+.cursor/
+.cursorindexingignore
+context/
+.specstory/
