@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-umbra-bg font-mono text-sm text-umbra-text antialiased;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  ::selection {
+    background: rgba(0, 239, 159, 0.25);
+    color: #fff;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply border border-umbra-border bg-umbra-surface;
+  }
+
+  .input-field {
+    @apply w-full border border-umbra-border bg-black px-3 py-2.5 font-mono text-sm text-umbra-text transition-colors placeholder:text-umbra-muted focus:border-umbra-accent focus:outline-none;
+  }
+
+  .btn-primary {
+    @apply w-full border border-umbra-accent bg-umbra-accent py-3 font-mono text-sm font-medium text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-ghost {
+    @apply border border-umbra-border bg-transparent px-3 py-1.5 font-mono text-xs text-umbra-muted transition-colors hover:border-umbra-accent hover:text-umbra-accent;
+  }
+
+  .tab-active {
+    @apply bg-umbra-accent text-black;
+  }
+
+  .tab-inactive {
+    @apply bg-transparent text-umbra-accent hover:bg-umbra-accent/5;
+  }
+
+  .status-banner {
+    @apply flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-xs;
+  }
+
+  .status-idle {
+    @apply border-umbra-border text-umbra-muted;
+  }
+
+  .status-pending {
+    @apply border-umbra-accent/30 text-umbra-accent;
+  }
+
+  .status-warn {
+    @apply border-amber-500/40 text-amber-300;
+  }
+
+  .status-ok {
+    @apply border-umbra-accent/50 text-umbra-accent;
+  }
+
+  .status-error {
+    @apply border-red-500/40 text-red-400;
+  }
+}
