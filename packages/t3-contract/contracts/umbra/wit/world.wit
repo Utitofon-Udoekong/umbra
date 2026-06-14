@@ -1,0 +1,28 @@
+/// Umbra — shields institutional trade intent inside TEE before settlement.
+package z:umbra@0.2.4;
+
+world umbra {
+    import host:tenant/tenant-context@1.0.0;
+    import host:interfaces/logging@2.1.0;
+    import host:interfaces/kv-store@2.1.0;
+    import host:interfaces/http@2.1.0;
+    import host:interfaces/http-with-placeholders@2.1.0;
+
+    export contracts;
+}
+
+interface contracts {
+    record generic-input {
+        input:        option<list<u8>>,
+        user-profile: option<list<u8>>,
+        context:      option<list<u8>>,
+    }
+
+    set-pool-policy: func(req: generic-input) -> result<list<u8>, string>;
+    commit-trade: func(req: generic-input) -> result<list<u8>, string>;
+    get-shadow-status: func(req: generic-input) -> result<list<u8>, string>;
+    get-dark-quote: func(req: generic-input) -> result<list<u8>, string>;
+    execute-fill: func(req: generic-input) -> result<list<u8>, string>;
+    submit-public-mempool: func(req: generic-input) -> result<list<u8>, string>;
+    book-travel: func(req: generic-input) -> result<list<u8>, string>;
+}

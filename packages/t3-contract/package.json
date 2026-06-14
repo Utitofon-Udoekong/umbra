@@ -1,0 +1,8 @@
+{
+  "name": "@umbra/t3-contract",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --manifest-path contracts/umbra/Cargo.toml --target wasm32-wasip2 --release"
+  }
+}
