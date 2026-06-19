@@ -5,12 +5,18 @@ import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
 import {
+  ActivityResponseSchema,
   AttestationReportSchema,
   TradeIntentSchema,
   type AttestationReport,
 } from "@umbra/shared";
+import { buildUserActivity } from "./activity.js";
+import { DepositLedger } from "./deposit-ledger.js";
 import { runShadowFlow, simulateMempoolViolation } from "./enclave-client.js";
+import { isTeeBypassEnabled } from "./tee-bypass.js";
+import { AttestationLedger } from "./ledger.js";
 import { settleOnBaseSepolia } from "./router.js";
+import { formatT3Error } from "./t3-errors.js";
 import {
   buildTradeCredential,
   computeMrEnclave,
@@ -41,7 +47,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const attestations = new Map<string, AttestationReport>();
+const ledger = new AttestationLedger();
+const depositLedger = new DepositLedger();
+
+const activityCache = new Map<string, { at: number; payload: unknown }>();
+const ACTIVITY_CACHE_TTL_MS = 60_000;
+
+function isValidAddress(address: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(address);
+}
 
 async function getMrEnclave(): Promise<string> {
   try {
@@ -97,17 +111,95 @@ app.get("/user/:address/credit", async (req, res) => {
       return;
     }
     const pool = requirePoolAddress();
-    const usdc = tokenAddress("USDC");
-    const credit = await readUserCredit(address as `0x${string}`, usdc);
+    const tokenSymbol = (req.query.token as string) ?? "USDC";
+    const token = tokenAddress(tokenSymbol);
+    const credit = await readUserCredit(address as `0x${string}`, token);
+    const decimals = tokenSymbol.toUpperCase() === "WETH" ? 18 : 6;
     res.json({
       user: address,
       pool,
       chain_id: BASE_SEPOLIA.chainId,
-      token: "USDC",
-      token_address: usdc,
+      token: tokenSymbol,
+      token_address: token,
       credit: credit.toString(),
-      decimals: 6,
+      decimals,
     });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+app.get("/user/:address/activity", async (req, res) => {
+  try {
+    const address = req.params.address;
+    if (!isValidAddress(address)) {
+      res.status(400).json({ error: "invalid address" });
+      return;
+    }
+
+    const cacheKey = address.toLowerCase();
+    const cached = activityCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < ACTIVITY_CACHE_TTL_MS) {
+      res.json(cached.payload);
+      return;
+    }
+
+    const pool = requirePoolAddress();
+    const user = address as `0x${string}`;
+    const attestations = ledger.getByUser(user);
+    const deposits = depositLedger.getByUser(user);
+    const entries = await buildUserActivity(user, pool, attestations, deposits);
+
+    const payload = ActivityResponseSchema.parse({
+      user: address,
+      chain_id: BASE_SEPOLIA.chainId,
+      entries,
+    });
+    activityCache.set(cacheKey, { at: Date.now(), payload });
+    res.json(payload);
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+app.post("/user/:address/deposit", async (req, res) => {
+  try {
+    const address = req.params.address;
+    if (!isValidAddress(address)) {
+      res.status(400).json({ error: "invalid address" });
+      return;
+    }
+
+    const { txHash, token, amount } = req.body as {
+      txHash?: string;
+      token?: string;
+      amount?: string;
+    };
+
+    if (!txHash || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      res.status(400).json({ error: "invalid txHash" });
+      return;
+    }
+    if (!token || !amount) {
+      res.status(400).json({ error: "token and amount required" });
+      return;
+    }
+
+    await depositLedger.save({
+      id: txHash,
+      user_address: address,
+      tx_hash: txHash,
+      token,
+      amount,
+      saved_at: Date.now(),
+    });
+    activityCache.delete(address.toLowerCase());
+
+    res.json({ ok: true, tx_hash: txHash });
   } catch (err) {
     res.status(400).json({
       error: err instanceof Error ? err.message : String(err),
@@ -121,8 +213,46 @@ app.post("/intent", async (req, res) => {
     requireRouterKey();
 
     const intent = TradeIntentSchema.parse(req.body);
-    await assertUserCredit(intent);
+    if (!isTeeBypassEnabled()) {
+      await assertUserCredit(intent);
+    }
     const flow = await runShadowFlow(intent);
+
+    if (intent.simulateViolation) {
+      const violationMessage = await simulateMempoolViolation(flow.commit.shadow_intent_id);
+      const audit = isTeeBypassEnabled() ? [] : await fetchAuditTail(flow.institution.t3n);
+      
+      const report: AttestationReport = {
+        mrenclave: await getMrEnclave(),
+        shadow_intent_id: flow.commit.shadow_intent_id,
+        agent_did: flow.invoke.tenantDid,
+        user_address: intent.userAddress,
+        delegation_credential: {},
+        dark_quote: {
+          route_id: flow.quote.dark_quote.route_id,
+          price: flow.quote.dark_quote.price,
+          expires_at: flow.quote.dark_quote.expires_at,
+          token_in: flow.quote.dark_quote.token_in,
+          token_out: flow.quote.dark_quote.token_out,
+          buy_amount: flow.quote.dark_quote.buy_amount,
+          sell_amount: flow.quote.dark_quote.sell_amount,
+          fee_tier: flow.quote.dark_quote.fee_tier,
+          liquidity_source: "uniswap_v3",
+          chain_id: BASE_SEPOLIA.chainId,
+          routing: "private",
+        },
+        audit_events: audit,
+        status: "violation",
+        violation_message: violationMessage,
+      };
+
+      AttestationReportSchema.parse(report);
+      await ledger.save(report);
+      activityCache.delete(intent.userAddress.toLowerCase());
+
+      res.json(report);
+      return;
+    }
 
     const quoteHash = createHash("sha256")
       .update(JSON.stringify(flow.quote.dark_quote))
@@ -144,7 +274,8 @@ app.post("/intent", async (req, res) => {
       userAddress: intent.userAddress,
     });
 
-    const audit = await fetchAuditTail(flow.institution.t3n);
+    const audit = isTeeBypassEnabled() ? [] : await fetchAuditTail(flow.institution.t3n);
+    const vcHash = hashCredential(credential);
 
     const report: AttestationReport = {
       mrenclave: await getMrEnclave(),
@@ -172,11 +303,12 @@ app.post("/intent", async (req, res) => {
     };
 
     AttestationReportSchema.parse(report);
-    attestations.set(flow.commit.shadow_intent_id, report);
+    await ledger.save({ ...report, vc_hash: vcHash });
+    activityCache.delete(intent.userAddress.toLowerCase());
 
     res.json({
       ...report,
-      vc_hash: hashCredential(credential),
+      vc_hash: vcHash,
       dual_key_mode: flow.dualKey,
       routing_note: "Intent committed in TEE before Uniswap V3 settlement on Base Sepolia",
       settlement: {
@@ -186,14 +318,15 @@ app.post("/intent", async (req, res) => {
       },
     });
   } catch (err) {
+    console.error("[umbra/intent]", err);
     res.status(400).json({
-      error: err instanceof Error ? err.message : String(err),
+      error: formatT3Error(err),
     });
   }
 });
 
 app.get("/attestation/:intentId", (req, res) => {
-  const report = attestations.get(req.params.intentId);
+  const report = ledger.get(req.params.intentId);
   if (!report) {
     res.status(404).json({ error: "attestation not found" });
     return;
@@ -204,12 +337,7 @@ app.get("/attestation/:intentId", (req, res) => {
 app.post("/violation/:intentId", async (req, res) => {
   try {
     const message = await simulateMempoolViolation(req.params.intentId);
-    const existing = attestations.get(req.params.intentId);
-    if (existing) {
-      existing.status = "violation";
-      existing.violation_message = message;
-      attestations.set(req.params.intentId, existing);
-    }
+    // Simulation only — do not rewrite settled attestations or activity ledger.
     res.json({ shadow_intent_id: req.params.intentId, violation_message: message });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -217,6 +345,9 @@ app.post("/violation/:intentId", async (req, res) => {
 });
 
 const port = Number(process.env.ORCHESTRATOR_PORT ?? 3001);
+
+await ledger.load();
+await depositLedger.load();
 app.listen(port, () => {
   console.log(`Umbra orchestrator listening on http://localhost:${port}`);
 });
