@@ -2,6 +2,7 @@ import { runShadowFlow } from "../enclave-client.js";
 
 try {
   const result = await runShadowFlow({
+    userAddress: process.env.TEST_USER_ADDRESS ?? "0x0000000000000000000000000000000000000001",
     tokenIn: "USDC",
     tokenOut: "WETH",
     amount: "500000",

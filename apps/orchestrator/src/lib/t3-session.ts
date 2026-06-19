@@ -54,6 +54,18 @@ export function requireEnv(name: string): string {
 }
 
 const MIN_T3N_PER_CALL = 10_000;
+/** commit + grant + quote + fill + policy headroom */
+const MIN_T3N_FOR_SWAP = 50_000;
+
+export async function assertT3Credits(t3n: T3nClient): Promise<void> {
+  const usage = await t3n.getUsage();
+  const available = usage.balance.available;
+  if (available < MIN_T3N_FOR_SWAP) {
+    throw new Error(
+      `T3N credits exhausted (have ${available}, need ~${MIN_T3N_FOR_SWAP}) — claim more at https://www.terminal3.io/claim-page`,
+    );
+  }
+}
 
 export async function resolveSessions(): Promise<{
   institution: SessionBundle;

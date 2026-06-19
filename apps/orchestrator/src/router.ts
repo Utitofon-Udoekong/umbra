@@ -2,7 +2,6 @@ import {
   createPublicClient,
   createWalletClient,
   encodeFunctionData,
-  http,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -10,6 +9,7 @@ import { baseSepolia } from "viem/chains";
 import type { DarkQuoteResponse } from "./enclave-client.js";
 import type { DelegationCredential } from "@terminal3/t3n-sdk";
 import { hashCredential } from "./t3-auth.js";
+import { createRpcTransport } from "./rpc.js";
 import {
   minBuyAmount,
   POOL_EXECUTE_ABI,
@@ -36,7 +36,6 @@ export async function settleOnBaseSepolia(opts: {
 }): Promise<SettlementResult> {
   const poolAddress = requirePoolAddress();
   const routerKey = requireRouterKey();
-  const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL ?? "https://sepolia.base.org";
 
   const vcHash = hashCredential(opts.credential) as Hex;
   const user = opts.userAddress as Hex;
@@ -49,7 +48,7 @@ export async function settleOnBaseSepolia(opts: {
   const account = privateKeyToAccount(routerKey);
 
   // bypasses public mempool — private RPC; intent already committed in TEE before broadcast
-  const transport = http(rpcUrl, { fetchOptions: { cache: "no-store" } });
+  const transport = createRpcTransport();
 
   const publicClient = createPublicClient({
     chain: baseSepolia,

@@ -1,13 +1,18 @@
 import type { TradeIntent } from "@umbra/shared";
 import { executeAsAgent, executeAsTenant } from "./lib/contract.js";
 import { issueScopedGrant } from "./lib/grants.js";
-import { resolveSessions } from "./lib/t3-session.js";
+import { resolveSessions, assertT3Credits } from "./lib/t3-session.js";
 import {
   DEFAULT_POOL_POLICY,
   type CommitTradeResult,
   type SessionBundle,
 } from "./lib/types.js";
 import { quoteFromIntent, type UniswapQuote } from "./uniswap-client.js";
+import {
+  isTeeBypassEnabled,
+  runShadowFlowBypass,
+  simulateMempoolViolationBypass,
+} from "./tee-bypass.js";
 
 export interface DarkQuoteResponse {
   status: string;
@@ -43,7 +48,12 @@ export interface EnclaveFlowResult {
 const DEFI_STEPS = ["get-dark-quote", "execute-fill"] as const;
 
 export async function runShadowFlow(intent: TradeIntent): Promise<EnclaveFlowResult> {
+  if (isTeeBypassEnabled()) {
+    return runShadowFlowBypass(intent);
+  }
+
   const { institution, invoke, dualKey } = await resolveSessions();
+  await assertT3Credits(institution.t3n);
   const tenantDid = institution.tenantDid;
 
   await executeAsTenant(institution.tenant, tenantDid, "set-pool-policy", DEFAULT_POOL_POLICY);
@@ -101,6 +111,10 @@ export async function runShadowFlow(intent: TradeIntent): Promise<EnclaveFlowRes
 }
 
 export async function simulateMempoolViolation(shadowIntentId: string): Promise<string> {
+  if (isTeeBypassEnabled()) {
+    return simulateMempoolViolationBypass();
+  }
+
   const { invoke, institution } = await resolveSessions();
   try {
     await executeAsAgent(invoke.t3n, institution.tenantDid, "submit-public-mempool", {
@@ -108,6 +122,10 @@ export async function simulateMempoolViolation(shadowIntentId: string): Promise<
     });
     return "unexpected success";
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    const raw = err instanceof Error ? err.message : String(err);
+    if (raw.includes("SHADOW_VIOLATION") || raw.includes("submit-public-mempool")) {
+      return "Compliance Block: The enclave policy blocked execution because a step in the transaction routing path attempted to leak the trade intent ('submit-public-mempool') to the public mempool. This action was stopped to prevent MEV front-running and protect user assets.";
+    }
+    return raw;
   }
 }

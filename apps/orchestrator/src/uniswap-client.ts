@@ -1,13 +1,15 @@
 import type { TradeIntent } from "@umbra/shared";
-import { createPublicClient, http, type Address, type Hex } from "viem";
+import { createPublicClient, type Address, type Hex } from "viem";
 import { baseSepolia } from "viem/chains";
+import { createRpcTransport } from "./rpc.js";
 
 export const BASE_SEPOLIA = {
   chainId: 84532,
   usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as Address,
   weth: "0x4200000000000000000000000000000000000006" as Address,
-  swapRouter02: "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a" as Address,
-  quoterV2: "0x9AaAf3D587Bfd273DB51d8e3A77A5388181d32E7" as Address,
+  swapRouter02: "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4" as Address,
+  quoterV2: "0xC5290058841028F1614F3A6F0F5816cAd0df5E27" as Address,
+  v3Factory: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24" as Address,
   feeTiers: [500, 3000, 10_000] as const,
 };
 
@@ -114,7 +116,7 @@ function rpcUrl() {
 export function createSepoliaClient() {
   return createPublicClient({
     chain: baseSepolia,
-    transport: http(rpcUrl(), { fetchOptions: { cache: "no-store" } }),
+    transport: createRpcTransport(),
   });
 }
 
