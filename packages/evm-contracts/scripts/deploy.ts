@@ -14,19 +14,25 @@ async function main() {
 
   const Pool = await ethers.getContractFactory("InstitutionalPool");
   const pool = await Pool.deploy(wallet.address, BASE_SEPOLIA.swapRouter02);
-  await pool.waitForDeployment();
+  const deployTx = pool.deploymentTransaction();
+  const receipt = deployTx ? await deployTx.wait() : null;
   const address = await pool.getAddress();
+  const deployBlock = receipt?.blockNumber;
 
   console.log("InstitutionalPool deployed to:", address);
   console.log("Router:", wallet.address);
   console.log("SwapRouter02:", BASE_SEPOLIA.swapRouter02);
   console.log(`Explorer: https://sepolia.basescan.org/address/${address}`);
   console.log(`Set INSTITUTIONAL_POOL_ADDRESS=${address} in .env`);
+  if (deployBlock) {
+    console.log(`Set POOL_DEPLOY_BLOCK=${deployBlock} in .env (optional — speeds up activity ledger)`);
+  }
 
   const deployment = {
     baseSepolia: {
       chainId: BASE_SEPOLIA.chainId,
       InstitutionalPool: address,
+      deployBlock: deployBlock ?? null,
       router: wallet.address,
       swapRouter02: BASE_SEPOLIA.swapRouter02,
       quoterV2: BASE_SEPOLIA.quoterV2,
