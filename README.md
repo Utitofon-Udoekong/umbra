@@ -10,6 +10,7 @@ Umbra is a Terminal 3 (T3N) hackathon submission: users commit trade plans insid
 |---------|------|
 | `packages/t3-contract` | Rust WASM enclave (real TEE) |
 | `apps/orchestrator` | Express API + `@terminal3/t3n-sdk` |
+| `apps/cli` | Operator CLI (orchestrator HTTP) |
 | `apps/web` | MetaMask swap UI (wagmi) |
 | `packages/evm-contracts` | `InstitutionalPool.sol` on Base Sepolia |
 | `packages/shared` | Attestation Zod schemas |
@@ -67,6 +68,28 @@ Privacy: intent + quote binding in TEE; settlement tx is a router relay (your ad
 | `pnpm skill:pool-balance` | Read aggregate pool USDC/WETH |
 | `pnpm skill:user-credit` | Read per-user pool credit |
 | `pnpm skill:verify-enclave` | Validate attestation JSON |
+| `pnpm umbra health` | Orchestrator + pool status |
+| `pnpm umbra credit <0x…>` | Per-user pool USDC credit |
+| `pnpm umbra swap --user <0x…> --amount <raw>` | Full intent via orchestrator |
+| `pnpm umbra attest <shadow-id>` | Fetch attestation report |
+| `pnpm umbra violation <shadow-id>` | Simulate mempool policy denial |
+| `pnpm umbra activity <0x…>` | Deposits + swaps ledger |
+
+## Judge quick test (CLI)
+
+Orchestrator must be running (`pnpm dev` or `pnpm --filter @umbra/orchestrator start`). User must have deposited USDC via the web UI first.
+
+```bash
+pnpm umbra health
+pnpm umbra credit 0xYourAddress
+pnpm umbra swap --user 0xYourAddress --amount 300000
+pnpm umbra attest shadow-demo-...
+pnpm umbra violation shadow-demo-...
+```
+
+Use `--json` on any command for machine-readable output.
+
+Legacy `skill:pool-balance` / `skill:user-credit` read chain directly; prefer `pnpm umbra pool` / `pnpm umbra credit` when the orchestrator is up.
 
 ## Identity
 

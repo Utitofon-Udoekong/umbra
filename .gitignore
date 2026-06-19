@@ -13,6 +13,9 @@ packages/evm-contracts/deployments.json
 *.log
 .DS_Store
 *.tsbuildinfo
+.vscode
+data/attestations.json
+data/deposits.json
 
 # AI prompt / planning (local only)
 .cursor/

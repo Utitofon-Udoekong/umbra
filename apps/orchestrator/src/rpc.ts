@@ -43,7 +43,7 @@ export function createRpcFallbackFetch(urls: string[]) {
 
 export function createRpcTransport() {
   return http(fallbackRpcUrls[0], {
-    fetch: createRpcFallbackFetch(fallbackRpcUrls),
+    fetchFn: createRpcFallbackFetch(fallbackRpcUrls),
     fetchOptions: { cache: "no-store" },
   });
 }
