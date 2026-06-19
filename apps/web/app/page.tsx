@@ -20,6 +20,7 @@ export default function Home() {
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <TransactionUI
           onAttestation={setAttestation}
+          onClearAttestation={() => setAttestation(null)}
           activeStep={pipelineStep}
           onStepChange={setPipelineStep}
         />

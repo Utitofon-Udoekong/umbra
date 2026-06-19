@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { AttestationReport } from "@umbra/shared";
-import { useAccount } from "wagmi";
-import { formatUnits } from "../lib/chain";
+import { useAccount, useReadContract } from "wagmi";
+import { BASE_SEPOLIA, ERC20_ABI, formatUnits } from "../lib/chain";
+import { fetchJson } from "../lib/fetch";
+import { ActivityLedger } from "./ActivityLedger";
 
 const ORCHESTRATOR = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:3001";
 const BASESCAN = "https://sepolia.basescan.org/tx/";
@@ -22,29 +24,36 @@ export function AttestationLog({
 }) {
   const { address } = useAccount();
   const [polled, setPolled] = useState<AttestationReport | null>(null);
-  const [violation, setViolation] = useState<string | null>(null);
-  const [violating, setViolating] = useState(false);
   const [poolUsdc, setPoolUsdc] = useState<string | null>(null);
-  const [poolWeth, setPoolWeth] = useState<string | null>(null);
   const [userCredit, setUserCredit] = useState<string | null>(null);
+
+  const { data: walletWeth } = useReadContract({
+    address: BASE_SEPOLIA.weth,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: Boolean(address) },
+  });
 
   const active = polled ?? report;
 
   useEffect(() => {
     async function loadPool() {
       try {
-        const res = await fetch(`${ORCHESTRATOR}/pool/balance`);
-        const data = await res.json();
-        if (res.ok) {
+        const { ok, data } = await fetchJson<{
+          usdc: string;
+          usdc_decimals: number;
+          error?: string;
+        }>(`${ORCHESTRATOR}/pool/balance`, { timeoutMs: 15_000 });
+        if (ok) {
           setPoolUsdc(formatUnits(BigInt(data.usdc), data.usdc_decimals));
-          setPoolWeth(formatUnits(BigInt(data.weth), data.weth_decimals));
         }
       } catch {
         /* ignore */
       }
     }
     loadPool();
-    const interval = setInterval(loadPool, 10_000);
+    const interval = setInterval(loadPool, 30_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -55,17 +64,29 @@ export function AttestationLog({
     }
     async function loadCredit() {
       try {
-        const res = await fetch(`${ORCHESTRATOR}/user/${address}/credit`);
-        const data = await res.json();
-        if (res.ok) setUserCredit(formatUnits(BigInt(data.credit), data.decimals));
+        const { ok, data } = await fetchJson<{ credit: string; decimals: number }>(
+          `${ORCHESTRATOR}/user/${address}/credit`,
+          { timeoutMs: 15_000 },
+        );
+        if (ok) setUserCredit(formatUnits(BigInt(data.credit), data.decimals));
       } catch {
         /* ignore */
       }
     }
     loadCredit();
-    const interval = setInterval(loadCredit, 8000);
+    const interval = setInterval(loadCredit, 15_000);
     return () => clearInterval(interval);
   }, [address]);
+
+  useEffect(() => {
+    setPolled(null);
+  }, [report?.shadow_intent_id]);
+
+  useEffect(() => {
+    if (pipelineStep === "committing") {
+      setPolled(null);
+    }
+  }, [pipelineStep]);
 
   useEffect(() => {
     if (!report?.shadow_intent_id) return;
@@ -81,21 +102,7 @@ export function AttestationLog({
     return () => clearInterval(interval);
   }, [report?.shadow_intent_id]);
 
-  async function simulateLeak() {
-    if (!active?.shadow_intent_id) return;
-    setViolating(true);
-    try {
-      const res = await fetch(`${ORCHESTRATOR}/violation/${active.shadow_intent_id}`, {
-        method: "POST",
-      });
-      const data = await res.json();
-      setViolation(data.violation_message ?? "SHADOW_VIOLATION");
-    } finally {
-      setViolating(false);
-    }
-  }
-
-  const isViolation = active?.status === "violation" || Boolean(violation);
+  const isViolation = active?.status === "violation";
   const txHash = active?.settlement_tx_hash ?? active?.base_tx_hash;
 
   return (
@@ -118,12 +125,8 @@ export function AttestationLog({
       <div className="flex-1 space-y-4 p-4 text-xs">
         <div className="space-y-2 border-b border-umbra-border pb-4">
           <div className="flex justify-between">
-            <span className="text-umbra-muted">pool usdc</span>
-            <span className="text-umbra-text">{poolUsdc ?? "—"}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-umbra-muted">pool weth</span>
-            <span className="text-umbra-text">{poolWeth ?? "—"}</span>
+            <span className="text-umbra-muted">pool inventory</span>
+            <span className="text-umbra-text">{poolUsdc ?? "—"} USDC</span>
           </div>
           {address && (
             <div className="flex justify-between">
@@ -131,6 +134,15 @@ export function AttestationLog({
               <span className="text-umbra-accent">{userCredit ?? "—"} USDC</span>
             </div>
           )}
+          {address && walletWeth !== undefined && (
+            <div className="flex justify-between">
+              <span className="text-umbra-muted">your wallet</span>
+              <span className="text-umbra-text">
+                {formatUnits(walletWeth, 18)} WETH
+              </span>
+            </div>
+          )}
+          <p className="text-[10px] text-umbra-muted">swap output (WETH) → your wallet</p>
         </div>
 
         {pipelineStep && pipelineStep !== "idle" && pipelineStep !== "done" && !active && (
@@ -166,22 +178,15 @@ export function AttestationLog({
                 </a>
               </div>
             )}
-            {(violation || active.violation_message) && (
-              <p className="text-red-400">{violation ?? active.violation_message}</p>
+            {isViolation && active.violation_message && (
+              <p className="text-red-400 font-medium">{active.violation_message}</p>
             )}
-
-            <button
-              type="button"
-              onClick={simulateLeak}
-              disabled={violating || isViolation}
-              className="mt-2 w-full border border-red-900/50 py-2 text-[10px] text-red-400/80 transition-colors hover:border-red-500/50 disabled:opacity-30"
-            >
-              {violating ? "…" : "test violation"}
-            </button>
           </div>
         ) : (
-          <p className="text-umbra-muted">no activity</p>
+          <p className="text-umbra-muted">no swap yet</p>
         )}
+
+        <ActivityLedger />
       </div>
     </div>
   );

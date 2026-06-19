@@ -7,11 +7,11 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from "wagmi";
-import { BASE_SEPOLIA, ERC20_ABI, POOL_ABI, formatUnits } from "../lib/chain";
+import type { ActionNoticePayload } from "./ActionNotice";
+import { BASE_SEPOLIA, ERC20_ABI, POOL_ABI, formatUnits, parseUnits, TOKEN_DECIMALS, TOKEN_ADDRESSES } from "../lib/chain";
 
 const ORCHESTRATOR = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:3001";
 const BASESCAN = "https://sepolia.basescan.org/tx/";
-const USDC_DECIMALS = 6;
 
 type TxPhase = "idle" | "awaiting_wallet" | "pending" | "confirming" | "success" | "error";
 type TxAction = "approve" | "deposit" | null;
@@ -47,10 +47,14 @@ function getErrorMessage(err: unknown): string {
 
 export function DepositStep({
   requiredAmount,
+  tokenSymbol = "USDC",
   onReadyChange,
+  onActionNotice,
 }: {
   requiredAmount: string;
+  tokenSymbol?: string;
   onReadyChange: (ready: boolean) => void;
+  onActionNotice?: (notice: ActionNoticePayload) => void;
 }) {
   const { address, isConnected, chainId } = useAccount();
   const [poolAddress, setPoolAddress] = useState<`0x${string}` | null>(null);
@@ -59,6 +63,9 @@ export function DepositStep({
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [action, setAction] = useState<TxAction>(null);
   const [phase, setPhase] = useState<TxPhase>("idle");
+
+  const tokenAddress = TOKEN_ADDRESSES[tokenSymbol] || BASE_SEPOLIA.usdc;
+  const decimals = TOKEN_DECIMALS[tokenSymbol] || 6;
 
   const {
     writeContract,
@@ -78,7 +85,7 @@ export function DepositStep({
 
   const { data: walletBalance, refetch: refetchBalance, isLoading: balanceLoading } =
     useReadContract({
-      address: BASE_SEPOLIA.usdc,
+      address: tokenAddress,
       abi: ERC20_ABI,
       functionName: "balanceOf",
       args: address ? [address] : undefined,
@@ -90,7 +97,7 @@ export function DepositStep({
     refetch: refetchAllowance,
     isLoading: allowanceLoading,
   } = useReadContract({
-    address: BASE_SEPOLIA.usdc,
+    address: tokenAddress,
     abi: ERC20_ABI,
     functionName: "allowance",
     args: address && poolAddress ? [address, poolAddress] : undefined,
@@ -134,7 +141,7 @@ export function DepositStep({
     setDepositAmount(requiredAmount);
   }, [requiredAmount]);
 
-  const required = BigInt(requiredAmount || "0");
+  const required = parseUnits(requiredAmount || "0", decimals);
   const credit = poolCredit ?? BigInt(0);
   const hasCredit = credit >= required && required > BigInt(0);
   const onBaseSepolia = chainId === BASE_SEPOLIA.chainId;
@@ -151,7 +158,10 @@ export function DepositStep({
     setPhase("error");
     setStatusMsg(msg);
     setAction(null);
-  }, [writeError, writeErr, action]);
+    if (action === "deposit") {
+      onActionNotice?.({ kind: "error", message: msg, txHash });
+    }
+  }, [writeError, writeErr, action, txHash, onActionNotice]);
 
   // receipt errors
   useEffect(() => {
@@ -161,7 +171,10 @@ export function DepositStep({
     setPhase("error");
     setStatusMsg(msg);
     setAction(null);
-  }, [receiptError, receiptErr, action]);
+    if (action === "deposit") {
+      onActionNotice?.({ kind: "error", message: msg, txHash });
+    }
+  }, [receiptError, receiptErr, action, txHash, onActionNotice]);
 
   // phase transitions from wagmi state
   useEffect(() => {
@@ -183,6 +196,23 @@ export function DepositStep({
     setPhase("success");
     setStatusMsg(label);
 
+    if (action === "deposit") {
+      onActionNotice?.({
+        kind: "success",
+        message: `Deposit confirmed — ${depositAmount} ${tokenSymbol} credited`,
+        txHash,
+      });
+    }
+
+    if (action === "deposit" && address) {
+      const amountRaw = parseUnits(depositAmount, decimals).toString();
+      fetch(`${ORCHESTRATOR}/user/${address}/deposit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ txHash, token: tokenSymbol, amount: amountRaw }),
+      }).catch((err) => logDepositError("deposit ledger save failed", err));
+    }
+
     refetchBalance();
     refetchAllowance();
     loadCredit();
@@ -195,7 +225,18 @@ export function DepositStep({
     }, 4000);
 
     return () => clearTimeout(timer);
-  }, [isSuccess, txHash, action, refetchBalance, refetchAllowance, loadCredit, reset]);
+  }, [
+    isSuccess,
+    txHash,
+    action,
+    address,
+    depositAmount,
+    refetchBalance,
+    refetchAllowance,
+    loadCredit,
+    reset,
+    onActionNotice,
+  ]);
 
   async function handleApprove() {
     if (!poolAddress || !address) return;
@@ -206,10 +247,10 @@ export function DepositStep({
 
     try {
       writeContract({
-        address: BASE_SEPOLIA.usdc,
+        address: tokenAddress,
         abi: ERC20_ABI,
         functionName: "approve",
-        args: [poolAddress, BigInt(depositAmount)],
+        args: [poolAddress, parseUnits(depositAmount, decimals)],
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -232,7 +273,7 @@ export function DepositStep({
         address: poolAddress,
         abi: POOL_ABI,
         functionName: "deposit",
-        args: [BASE_SEPOLIA.usdc, BigInt(depositAmount)],
+        args: [tokenAddress, parseUnits(depositAmount, decimals)],
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -245,7 +286,7 @@ export function DepositStep({
 
   let depositBn = BigInt(0);
   try {
-    depositBn = BigInt(depositAmount || "0");
+    depositBn = parseUnits(depositAmount, decimals);
   } catch {
     depositBn = BigInt(0);
   }
@@ -284,14 +325,14 @@ export function DepositStep({
       <div className="flex justify-between text-xs">
         <span className="text-umbra-muted">wallet</span>
         <span className="text-umbra-text">
-          {balanceLoading ? "…" : walletBalance !== undefined ? formatUnits(walletBalance, USDC_DECIMALS) : "—"}{" "}
-          USDC
+          {balanceLoading ? "…" : walletBalance !== undefined ? formatUnits(walletBalance, decimals) : "—"}{" "}
+          {tokenSymbol}
         </span>
       </div>
       <div className="flex justify-between text-xs">
         <span className="text-umbra-muted">credit</span>
         <span className={hasCredit ? "text-umbra-accent" : "text-umbra-text"}>
-          {formatUnits(credit, USDC_DECIMALS)} USDC
+          {formatUnits(credit, decimals)} {tokenSymbol}
         </span>
       </div>
 
@@ -299,70 +340,69 @@ export function DepositStep({
         <p className="text-xs text-umbra-muted">reading allowance…</p>
       )}
 
-      {insufficientBalance && !hasCredit && (
+      {insufficientBalance && (
         <p className="text-xs text-amber-400">
-          insufficient USDC — get test tokens from circle faucet
+          insufficient {tokenSymbol} — get test tokens from faucet
         </p>
       )}
 
-      {!hasCredit && (
-        <>
-          <div>
-            <label className="mb-2 block text-xs text-umbra-muted">amount (base units)</label>
-            <input
-              className="input-field"
-              value={depositAmount}
-              onChange={(e) => setDepositAmount(e.target.value)}
-              disabled={busy}
-            />
-          </div>
-
-          {statusMsg && (
-            <div className={`status-banner ${statusTone}`}>
-              <span>{statusMsg}</span>
-              {txHash && (phase === "pending" || phase === "confirming" || phase === "success") && (
-                <a
-                  href={`${BASESCAN}${txHash}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-umbra-accent hover:underline"
-                >
-                  {truncateHash(txHash)}
-                </a>
-              )}
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            {(needsApprove || !allowanceReady) && (
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={busy || depositBn === BigInt(0) || allowanceLoading}
-                className="btn-ghost flex-1 py-2.5 disabled:opacity-40"
-              >
-                {action === "approve" && busy ? "approving…" : "approve"}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleDeposit}
-              disabled={
-                busy ||
-                depositBn === BigInt(0) ||
-                needsApprove ||
-                !allowanceReady ||
-                insufficientBalance
-              }
-              className="btn-primary flex-1 disabled:opacity-40"
-            >
-              {action === "deposit" && busy ? "depositing…" : "deposit"}
-            </button>
-          </div>
-        </>
+      {hasCredit && (
+        <p className="text-xs text-umbra-accent">swap ready — add more credit below if needed</p>
       )}
 
-      {hasCredit && <p className="text-xs text-umbra-accent">funded — switch to swap</p>}
+      <div>
+        <label className="mb-2 block text-xs text-umbra-muted">amount ({tokenSymbol})</label>
+        <input
+          className="input-field"
+          value={depositAmount}
+          onChange={(e) => setDepositAmount(e.target.value)}
+          disabled={busy}
+          placeholder="0.00"
+        />
+      </div>
+
+      {statusMsg && (
+        <div className={`status-banner ${statusTone}`}>
+          <span>{statusMsg}</span>
+          {txHash && (phase === "pending" || phase === "confirming" || phase === "success") && (
+            <a
+              href={`${BASESCAN}${txHash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-umbra-accent hover:underline"
+            >
+              {truncateHash(txHash)}
+            </a>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        {(needsApprove || !allowanceReady) && (
+          <button
+            type="button"
+            onClick={handleApprove}
+            disabled={busy || depositBn === BigInt(0) || allowanceLoading}
+            className="btn-ghost flex-1 py-2.5 disabled:opacity-40"
+          >
+            {action === "approve" && busy ? "approving…" : "approve"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleDeposit}
+          disabled={
+            busy ||
+            depositBn === BigInt(0) ||
+            needsApprove ||
+            !allowanceReady ||
+            insufficientBalance
+          }
+          className="btn-primary flex-1 disabled:opacity-40"
+        >
+          {action === "deposit" && busy ? "depositing…" : "deposit"}
+        </button>
+      </div>
     </div>
   );
 }

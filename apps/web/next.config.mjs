@@ -7,6 +7,10 @@ const nextConfig = {
       ...config.resolve.alias,
       "@react-native-async-storage/async-storage": false,
     };
+    config.module = {
+      ...config.module,
+      exprContextCritical: false,
+    };
     return config;
   },
 };

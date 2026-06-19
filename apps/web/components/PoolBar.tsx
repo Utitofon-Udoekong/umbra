@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount } from "wagmi";
-import { formatUnits } from "../lib/chain";
+import { useAccount, useReadContract } from "wagmi";
+import { BASE_SEPOLIA, ERC20_ABI, formatUnits } from "../lib/chain";
 
 const ORCHESTRATOR = process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? "http://localhost:3001";
 
@@ -10,9 +10,7 @@ interface PoolBalance {
   pool: string;
   chain_id: number;
   usdc: string;
-  weth: string;
   usdc_decimals: number;
-  weth_decimals: number;
 }
 
 interface UserCredit {
@@ -25,6 +23,14 @@ export function PoolBar() {
   const [balance, setBalance] = useState<PoolBalance | null>(null);
   const [userCredit, setUserCredit] = useState<UserCredit | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const { data: walletWeth } = useReadContract({
+    address: BASE_SEPOLIA.weth,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: Boolean(address) },
+  });
 
   useEffect(() => {
     async function load() {
@@ -73,15 +79,19 @@ export function PoolBar() {
             <>
               <p className="mt-1 font-mono text-xs text-umbra-text-dim">{balance.pool}</p>
               <p className="mt-2 text-sm text-umbra-text">
-                <span className="text-umbra-text-dim">Pool USDC:</span>{" "}
-                {formatUnits(BigInt(balance.usdc), balance.usdc_decimals)}{" "}
-                <span className="text-umbra-muted">·</span>{" "}
-                <span className="text-umbra-text-dim">Pool WETH:</span>{" "}
-                {formatUnits(BigInt(balance.weth), balance.weth_decimals)}
+                <span className="text-umbra-text-dim">Pool inventory (USDC):</span>{" "}
+                {formatUnits(BigInt(balance.usdc), balance.usdc_decimals)}
               </p>
               {isConnected && userCredit && (
                 <p className="mt-1 text-sm text-emerald-400">
                   Your pool credit: {formatUnits(BigInt(userCredit.credit), userCredit.decimals)} USDC
+                </p>
+              )}
+              {isConnected && walletWeth !== undefined && (
+                <p className="mt-1 text-sm text-umbra-text">
+                  <span className="text-umbra-text-dim">Your wallet (WETH):</span>{" "}
+                  {formatUnits(walletWeth, 18)}
+                  <span className="ml-1 text-xs text-umbra-muted">· swap output lands here</span>
                 </p>
               )}
             </>
