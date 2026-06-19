@@ -13,7 +13,6 @@ import {
 import { buildUserActivity } from "./activity.js";
 import { DepositLedger } from "./deposit-ledger.js";
 import { runShadowFlow, simulateMempoolViolation } from "./enclave-client.js";
-import { isTeeBypassEnabled } from "./tee-bypass.js";
 import { AttestationLedger } from "./ledger.js";
 import { settleOnBaseSepolia } from "./router.js";
 import { formatT3Error } from "./t3-errors.js";
@@ -213,14 +212,12 @@ app.post("/intent", async (req, res) => {
     requireRouterKey();
 
     const intent = TradeIntentSchema.parse(req.body);
-    if (!isTeeBypassEnabled()) {
-      await assertUserCredit(intent);
-    }
+    await assertUserCredit(intent);
     const flow = await runShadowFlow(intent);
 
     if (intent.simulateViolation) {
       const violationMessage = await simulateMempoolViolation(flow.commit.shadow_intent_id);
-      const audit = isTeeBypassEnabled() ? [] : await fetchAuditTail(flow.institution.t3n);
+      const audit = await fetchAuditTail(flow.institution.t3n);
       
       const report: AttestationReport = {
         mrenclave: await getMrEnclave(),
@@ -274,7 +271,7 @@ app.post("/intent", async (req, res) => {
       userAddress: intent.userAddress,
     });
 
-    const audit = isTeeBypassEnabled() ? [] : await fetchAuditTail(flow.institution.t3n);
+    const audit = await fetchAuditTail(flow.institution.t3n);
     const vcHash = hashCredential(credential);
 
     const report: AttestationReport = {

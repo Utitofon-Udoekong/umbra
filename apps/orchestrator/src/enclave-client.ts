@@ -8,11 +8,6 @@ import {
   type SessionBundle,
 } from "./lib/types.js";
 import { quoteFromIntent, type UniswapQuote } from "./uniswap-client.js";
-import {
-  isTeeBypassEnabled,
-  runShadowFlowBypass,
-  simulateMempoolViolationBypass,
-} from "./tee-bypass.js";
 
 export interface DarkQuoteResponse {
   status: string;
@@ -48,9 +43,6 @@ export interface EnclaveFlowResult {
 const DEFI_STEPS = ["get-dark-quote", "execute-fill"] as const;
 
 export async function runShadowFlow(intent: TradeIntent): Promise<EnclaveFlowResult> {
-  if (isTeeBypassEnabled()) {
-    return runShadowFlowBypass(intent);
-  }
 
   const { institution, invoke, dualKey } = await resolveSessions();
   await assertT3Credits(institution.t3n);
@@ -111,9 +103,6 @@ export async function runShadowFlow(intent: TradeIntent): Promise<EnclaveFlowRes
 }
 
 export async function simulateMempoolViolation(shadowIntentId: string): Promise<string> {
-  if (isTeeBypassEnabled()) {
-    return simulateMempoolViolationBypass();
-  }
 
   const { invoke, institution } = await resolveSessions();
   try {
