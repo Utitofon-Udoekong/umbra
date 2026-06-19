@@ -65,7 +65,7 @@ export const wagmiConfig = createConfig({
   connectors: [injected()],
   transports: {
     [customBaseSepolia.id]: http(rpcUrl, {
-      fetch: createRpcFallbackFetch(defaultRpcUrls),
+      fetchFn: createRpcFallbackFetch(defaultRpcUrls),
       fetchOptions: { cache: "no-store" },
     }),
   },
