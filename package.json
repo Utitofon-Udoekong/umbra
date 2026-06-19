@@ -15,6 +15,7 @@
     "skill:fund-pool": "pnpm --filter @umbra/evm-contracts fund-pool",
     "skill:pool-balance": "pnpm --filter @umbra/evm-contracts pool-balance",
     "skill:user-credit": "pnpm --filter @umbra/evm-contracts user-credit",
+    "umbra": "pnpm --filter @umbra/cli exec tsx src/index.ts",
     "typecheck": "turbo run typecheck"
   },
   "engines": {
