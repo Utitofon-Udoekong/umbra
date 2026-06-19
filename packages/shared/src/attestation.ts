@@ -52,6 +52,32 @@ export const TradeIntentSchema = z.object({
   tokenOut: z.string(),
   amount: z.string(),
   maxSlippageBps: z.number().int().min(0).max(10_000).default(50),
+  simulateViolation: z.boolean().optional(),
 });
 
 export type TradeIntent = z.infer<typeof TradeIntentSchema>;
+
+export const ActivityEntrySchema = z.object({
+  id: z.string(),
+  type: z.enum(["deposit", "swap", "violation"]),
+  status: z.enum(["settled", "violation"]).optional(),
+  tx_hash: z.string().optional(),
+  block_number: z.number().int().optional(),
+  timestamp: z.number().optional(),
+  token_in: z.string().optional(),
+  token_out: z.string().optional(),
+  amount_in: z.string().optional(),
+  amount_out: z.string().optional(),
+  shadow_intent_id: z.string().optional(),
+  mrenclave: z.string().optional(),
+  basescan_url: z.string().optional(),
+});
+
+export const ActivityResponseSchema = z.object({
+  user: z.string(),
+  chain_id: z.number().int(),
+  entries: z.array(ActivityEntrySchema),
+});
+
+export type ActivityEntry = z.infer<typeof ActivityEntrySchema>;
+export type ActivityResponse = z.infer<typeof ActivityResponseSchema>;
